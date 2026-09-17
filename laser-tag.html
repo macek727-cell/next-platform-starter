@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0a16">
+<title>Laser Tag Blaster</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  background:radial-gradient(circle at 50% 0%,#131329 0%,#0a0a16 55%,#05050c 100%);
+  color:#e8f6ff;
+  overflow:hidden;
+  user-select:none;
+  -webkit-user-select:none;
+  touch-action:manipulation;
+  position:relative;
+}
+.radar{
+  position:fixed;left:-50%;top:-50%;width:200%;height:200%;
+  background:
+    repeating-radial-gradient(circle at 50% 50%,rgba(0,255,200,.06) 0 2px,transparent 2px 34px),
+    conic-gradient(from 0deg,rgba(0,255,200,.10),transparent 80deg);
+  animation:spin 7s linear infinite;
+  pointer-events:none;
+  z-index:0;
+}
+.radar::before{
+  content:"";position:absolute;inset:0;
+  background:radial-gradient(circle,rgba(37,255,184,.12),transparent 60%);
+  animation:pulse 2.4s ease-in-out infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.15)}}
+.wrap{position:relative;z-index:1;height:100%;display:flex;flex-direction:column;padding:10px;gap:10px;max-width:520px;margin:0 auto}
+.top{
+  display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;
+  background:rgba(20,26,48,.75);border:1px solid #2c3c66;border-radius:14px;padding:10px;
+}
+.roomrow{display:flex;gap:6px;align-items:center}
+.roomrow input{
+  width:110px;background:#0c1326;border:1px solid #35519b;color:#7fffd5;
+  border-radius:10px;padding:10px;font-size:20px;font-weight:700;letter-spacing:4px;text-align:center;
+}
+.roomrow button,.top button{
+  background:linear-gradient(180deg,#22c1a0,#0f8f78);border:none;color:#02110d;
+  font-weight:800;border-radius:10px;padding:10px 14px;font-size:14px;cursor:pointer;
+}
+.status{display:flex;align-items:center;gap:6px;font-size:12px;color:#9fb4e8;justify-content:flex-end}
+.dot{width:10px;height:10px;border-radius:50%;background:#4a5a86}
+.dot.on{background:#35ff9a;box-shadow:0 0 10px #35ff9a;animation:blink 1.2s infinite}
+.dot.err{background:#ff5d5d;box-shadow:0 0 10px #ff5d5d}
+@keyframes blink{50%{opacity:.4}}
+.namebar{
+  display:flex;gap:8px;align-items:center;
+  background:rgba(20,26,48,.75);border:1px solid #2c3c66;border-radius:14px;padding:10px;
+}
+.namebar input{
+  flex:1;background:#0c1326;border:1px solid #35519b;color:#fff;border-radius:10px;padding:9px 12px;font-size:16px;
+}
+.card{
+  background:rgba(20,26,48,.75);border:1px solid #2c3c66;border-radius:14px;padding:10px;
+}
+.card h2{font-size:12px;color:#7fb0e8;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+.weapons{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.wep{
+  position:relative;border-radius:16px;padding:14px;cursor:pointer;text-align:center;
+  border:2px solid #2c3c66;background:#111a33;transition:transform .08s,box-shadow .08s;
+}
+.wep .em{font-size:40px;line-height:1}
+.wep.act{border-color:#35ff9a;box-shadow:0 0 14px rgba(53,255,154,.4)}
+.wep h3{font-size:15px;margin:6px 0 2px}
+.wep .s{font-size:11px;color:#9fb4e8}
+.wep .cdov{position:absolute;inset:0;border-radius:15px;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;font-weight:800;color:#7fffd5;font-size:20px}
+.wep.oncd .cdov{display:flex}
+.firewrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:120px}
+.fire{
+  width:190px;height:190px;border-radius:50%;cursor:pointer;
+  background:radial-gradient(circle at 32% 30%,#ff9d6b,#e0382e 60%,#7d0f0a);
+  border:4px solid #ffd23f;color:#fff;font-size:22px;font-weight:900;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  box-shadow:0 0 30px rgba(255,80,50,.45);
+  transition:transform .06s;
+}
+.fire:active,.fire.pull{transform:scale(.9)}
+.fire small{font-size:12px;font-weight:600;color:#ffe3b0}
+.players{overflow-y:auto;flex:1;min-height:80px}
+.friend{
+  display:flex;align-items:center;gap:10px;background:#111a33;border:1px solid #2c3c66;
+  border-radius:10px;padding:8px 10px;margin-bottom:8px;
+}
+.friend .av{width:36px;height:36px;border-radius:50%;background:linear-gradient(180deg,#35ff9a,#0f8f78);display:flex;align-items:center;justify-content:center;font-weight:900;color:#02110d;font-size:15px}
+.friend .nm{flex:1;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.friend.dead{opacity:.55}
+.friend.dead .av{background:linear-gradient(180deg,#777,#333);color:#ddd}
+.bar{height:10px;border-radius:6px;background:#0c1326;overflow:hidden;border:1px solid #35519b;flex:1}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,#35ff9a,#22c1a0);transition:width .3s,background .3s}
+.hpwrap{width:100px}
+.hpwrap .lbl{font-size:10px;color:#9fb4e8;text-align:right}
+.you{
+  display:flex;align-items:center;gap:10px;background:rgba(20,26,48,.75);
+  border:1px solid #35ff9a;border-radius:14px;padding:10px;
+}
+.you .av{width:42px;height:42px;border-radius:50%;background:linear-gradient(180deg,#ffd23f,#e0382e);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;color:#2a1202}
+.you .info{flex:1}
+.you .parent{display:flex;align-items:center;gap:8px}
+.pbar{flex:1;height:16px;border-radius:8px;background:#0c1326;border:1px solid #35519b;overflow:hidden}
+.pbar i{display:block;height:100%;background:linear-gradient(90deg,#35ff9a,#7fffd5);transition:width .25s}
+.pbar i.low{background:linear-gradient(90deg,#ff5d5d,#ffd23f)}
+.you .kills{font-size:12px;color:#ffd23f;font-weight:800;white-space:nowrap}
+.flash,.redflash{
+  position:fixed;inset:0;z-index:50;pointer-events:none;opacity:0;background:#fff;
+}
+.flash.boom{animation:fl 120ms ease-out}
+.redflash.boom{background:#ff0033;animation:rf 260ms ease-out}
+@keyframes fl{0%{opacity:.95}100%{opacity:0}}
+@keyframes rf{0%{opacity:.5}100%{opacity:0}}
+.deadscr{
+  position:fixed;inset:0;z-index:60;background:rgba(10,0,16,.92);
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;
+}
+.deadscr.show{display:flex}
+.deadscr .sk{font-size:70px}
+.deadscr h1{color:#ff5d5d;font-size:32px;text-shadow:0 0 20px #ff0033}
+.deadscr .cnt{color:#9fb4e8;font-size:18px}
+.toast{
+  position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:70;
+  background:#0c1326;border:1px solid #35ff9a;color:#7fffd5;border-radius:12px;
+  padding:10px 18px;font-size:14px;font-weight:700;opacity:0;transition:opacity .25s;
+  max-width:90vw;text-align:center;
+}
+.toast.show{opacity:1}
+.hint{position:fixed;right:10px;bottom:70px;z-index:70;background:#0c1326;border:1px solid #ffd23f;color:#ffd23f;border-radius:10px;padding:8px 12px;font-size:11px;max-width:200px}
+.hint.hide{display:none}
+</style>
+</head>
+<body>
+<div class="radar"></div>
+<div class="wrap">
+  <div class="top">
+    <div class="roomrow">
+      <input id="room" inputmode="numeric" maxlength="4" placeholder="MÍSTNOST">
+      <button id="btnConnect">SPOJIT</button>
+    </div>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusTxt">offline</span></div>
+  </div>
+
+  <div class="namebar">
+    <input id="name" maxlength="14" placeholder="Tvé jméno">
+    <button id="btnMotion">POVOLIT SHAKE</button>
+  </div>
+
+  <div class="card">
+    <h2>Výběr zbraně</h2>
+    <div class="weapons">
+      <div class="wep act" data-w="pistol" id="wPistol">
+        <div class="em">🔫</div>
+        <h3>Pistole</h3>
+        <div class="s">⚡25 poškození · rychlá</div>
+        <div class="cdov">PŘEBÍJÍM…</div>
+      </div>
+      <div class="wep" data-w="shotgun" id="wShotgun">
+        <div class="em">💥</div>
+        <h3>Brokovnice</h3>
+        <div class="s">💢50 poškození · pomalá</div>
+        <div class="cdov">PŘEBÍJÍM…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="firewrap">
+    <button class="fire" id="fireBtn">
+      <span>💀 VÝSTŘEL 💀</span>
+      <small>zmáčkni, nebo ZATŘES telefonem</small>
+    </button>
+  </div>
+
+  <div class="card players">
+    <h2>🎯 Kamarádi v místnosti</h2>
+    <div id="friends"><div class="friend" style="justify-content:center;color:#9fb4e8">Čekám na vlny…</div></div>
+  </div>
+
+  <div class="you">
+    <div class="av" id="youAv">?</div>
+    <div class="info">
+      <div class="parent">
+        <div class="pbar"><i id="youHp" style="width:100%"></i></div>
+        <div class="kills" id="youKills">⚔️ 0</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="flash" id="flash"></div>
+<div class="redflash" id="redflash"></div>
+
+<div class="deadscr" id="deadscr">
+  <div class="sk">💀</div>
+  <h1>JSI MRTVÝ!</h1>
+  <div class="cnt">Oživení za <b id="revCnt">6</b> s</div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="hint" id="hint">💡 <b>iOS:</b> zmáčkni „Povolit shake“ a povol pohyb + fotoaparát, ať blesk a třes fungují.</div>
+
+<script>
+const WEAPONS={
+  pistol:{label:'Pistole',emoji:'🔫',dmg:25,cd:350,thr:10,vib:[70],f1:920,f2:540,dur:0.10,color:'#ffd23f'},
+  shotgun:{label:'Brokovnice',emoji:'💥',dmg:50,cd:1500,thr:16,vib:[150,80,150,80,180],f1:230,f2:95,dur:0.28,color:'#ff5d5d'}
+};
+let selected='pistol';
+let hp=100;let kills=0;let dying=false;let locked=0;
+let room='';let playerName='';
+let connected=false;let client=null;
+let track=null;
+let lastAcc=0;let lastT=0;let shakeLocked=false;
+let audioCtx=null;
+const friends=new Map();
+const $=id=>document.getElementById(id);
+const roomEl=$('room'),dotEl=$('dot'),statusTxt=$('statusTxt'),fireBtn=$('fireBtn');
+const friendsEl=$('friends'),youHp=$('youHp'),youKills=$('youKills'),youAv=$('youAv');
+const flashEl=$('flash'),redflashEl=$('redflash'),deadscr=$('deadscr'),revCnt=$('revCnt');
+const toast=$('toast'),hint=$('hint');
+const nameEl=$('name');
+const btnConnect=$('btnConnect'),btnMotion=$('btnMotion');
+
+roomEl.value=String(Math.floor(1000+Math.random()*9000));
+playerName='Hráč'+Math.floor(1000+Math.random()*9000);
+nameEl.value=playerName;
+
+function makeSound(f1,f2,dur,type,vol){
+  try{
+    if(!audioCtx) return;
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.type=type||'square';
+    o.frequency.setValueAtTime(f1,audioCtx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(Math.max(40,f2),audioCtx.currentTime+dur);
+    g.gain.setValueAtTime(vol||0.25,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
+    o.connect(g);g.connect(audioCtx.destination);
+    o.start();o.stop(audioCtx.currentTime+dur+0.02);
+  }catch(e){}
+}
+function shotSound(name){
+  const w=WEAPONS[name];
+  makeSound(w.f1,w.f2,w.dur,'square',0.3);
+  makeSound(w.f1*1.5,w.f2*1.6,w.dur*0.5,'sawtooth',0.12);
+}
+function hitSound(){makeSound(520,160,0.18,'square',0.28);}
+function deathSound(){makeSound(600,90,0.7,'sawtooth',0.35);}
+function killSound(){makeSound(300,900,0.35,'triangle',0.3);}
+function respawnSound(){makeSound(400,800,0.4,'sine',0.3);}
+
+function vib(p){try{if(navigator.vibrate)navigator.vibrate(p);}catch(e){}}
+function flash(){
+  flashEl.classList.remove('boom');void flashEl.offsetWidth;flashEl.classList.add('boom');
+}
+function redflashUI(){
+  redflashEl.classList.remove('boom');void redflashEl.offsetWidth;redflashEl.classList.add('boom');
+}
+function showToast(msg){
+  toast.textContent=msg;toast.classList.add('show');
+  clearTimeout(showToast._t);showToast._t=setTimeout(()=>toast.classList.remove('show'),2200);
+}
+function ensureAudio(){
+  try{if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}
+  if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();
+}
+async function ensureCamera(){
+  if(track) return;
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:320},height:{ideal:240},facingMode:'environment'}});
+    track=stream.getVideoTracks()[0];
+  }catch(e){}
+}
+function torch(on){
+  if(!track) return;
+  try{track.applyConstraints({advanced:[{torch:on}]});}catch(e){}
+}
+function setStatus(cls,text){
+  dotEl.className='dot '+(cls||'');
+  statusTxt.textContent=text||'';
+}
+
+function updateHp(){
+  const pct=Math.max(0,Math.round(hp));
+  youHp.style.width=pct+'%';
+  youHp.classList.toggle('low',pct<=30);
+  youAv.textContent=playerName.slice(0,2).toUpperCase();
+}
+function updateKills(){youKills.textContent='⚔️ '+kills;}
+function selectWeapon(w){
+  if(!WEAPONS[w])return;
+  selected=w;
+  document.querySelectorAll('.wep').forEach(el=>el.classList.toggle('act',el.dataset.w===w));
+}
+
+function fire(){
+  const w=WEAPONS[selected];
+  const now=performance.now();
+  if(now<locked||dying||!w)return;
+  locked=now+w.cd;
+  const card=document.querySelector('.wep[data-w="'+selected+'"]');
+  card.classList.add('oncd');
+  setTimeout(()=>card.classList.remove('oncd'),w.cd);
+  flash();
+  vib(w.vib);
+  shotSound(selected);
+  ensureCamera().then(()=>{
+    torch(true);
+    setTimeout(()=>{try{torch(false);}catch(e){}},130);
+  }).catch(()=>{});
+  fireBtn.classList.add('pull');
+  setTimeout(()=>fireBtn.classList.remove('pull'),90);
+  send({t:'hit',n:playerName,d:w.dmg,w:selected});
+  updateHp();
+}
+
+function settleShake(a){
+  if(a>WEAPONS[selected].thr&&!shakeLocked&&!dying&&performance.now()>=locked){
+    shakeLocked=true;
+    fire();
+  }else if(a<WEAPONS[selected].thr*0.7){
+    shakeLocked=false;
+  }
+}
+function onMotion(e){
+  const a=e.accelerationIncludingGravity;
+  if(!a) return;
+  const mag=Math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z);
+  const t=e.timeStamp;
+  if(lastT){
+    const dt=Math.max(1,t-lastT);
+    const delta=Math.abs(mag-lastAcc);
+    if(dt<40&&delta>0) settleShake(delta);
+  }
+  lastAcc=mag;lastT=t;
+}
+async function enableMotion(){
+  ensureAudio();ensureCamera();
+  try{
+    if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
+      const r=await DeviceMotionEvent.requestPermission();
+    }
+  }catch(e){}
+  window.addEventListener('devicemotion',onMotion,{passive:true});
+  $('btnMotion').textContent='SHAKE ON ✅';
+  hint.classList.add('hide');
+  showToast('📳 Shake aktivní! Zatřes telefonem pro výstřel.');
+}
+
+function connect(){
+  if(typeof Paho==='undefined'){
+    setStatus('err','žádný broker');
+    showToast('⚠️ Nepodařilo se načíst spojení – hraješ offline (jen sám).');
+    return;
+  }
+  room=roomEl.value.trim()||String(Math.floor(1000+Math.random()*9000));
+  roomEl.value=room;
+  const cid='ltg_'+Math.random().toString(16).slice(2,10);
+  try{
+    client=new Paho.MQTT.Client('broker.hivemq.com',8884,'/mqtt',cid);
+    client.onMessageArrived=function(m){try{route(JSON.parse(m.payloadString));}catch(e){}};
+    client.onConnectionLost=function(r){connected=false;setStatus('err','spojení ztraceno');setTimeout(connect,4000);};
+    client.connect({
+      useSSL:true,timeout:8,cleanSession:true,
+      onSuccess:function(){
+        connected=true;setStatus('on','Vlny: ANO');
+        client.subscribe('lasertag/'+room+'/'+playerName.replace(/[^a-z0-9]/gi,'u'));
+        client.subscribe('lasertag/'+room+'/all');
+        send({t:'join',n:playerName,hp:hp});
+        setInterval(function(){if(connected)send({t:'ping',n:playerName,hp:hp});},5000);
+        showToast('🔗 Připojeno do místnosti '+room+' (rádiové vlny)');
+      },
+      onFailure:function(){
+        connected=false;setStatus('err','žádný broker');
+        showToast('⚠️ Nepodařilo se připojit – hraješ offline.');
+      }
+    });
+  }catch(e){
+    connected=false;setStatus('err','žádný broker');
+  }
+}
+function send(obj){
+  if(!connected||!client||!room)return;
+  obj.hp=hp;
+  try{const msg=new Paho.MQTT.Message(JSON.stringify(obj));msg.destinationName='lasertag/'+room+'/all';client.send(msg);}catch(e){}
+}
+function route(m){
+  if(m.n===playerName)return;
+  if(m.t==='join'||m.t==='ping'){
+    friends.set(m.n,{name:m.n,hp:typeof m.hp==='number'?m.hp:100,dead:typeof m.hp==='number'&&m.hp<=0});
+    renderFriends();
+  }else if(m.t==='hit'){
+    takeDamage(m.d,m.n,m.w);
+  }else if(m.t==='hp'){
+    const f=friends.get(m.n);
+    if(f){f.hp=m.hp;f.dead=m.hp<=0;renderFriends();}
+  }else if(m.t==='dead'){
+    const f=friends.get(m.n);
+    if(f){f.hp=0;f.dead=true;renderFriends();}
+    kills++;updateKills();killSound();
+    showToast('💥 ZABIT ▶ '+m.n+'   (+1 výhra)');
+  }else if(m.t==='respawn'){
+    const f=friends.get(m.n);
+    if(f){f.hp=100;f.dead=false;renderFriends();}
+    showToast('🫀 '+m.n+' se oživil!');
+  }
+}
+function renderFriends(){
+  if(friends.size===0){
+    friendsEl.innerHTML='<div class="friend" style="justify-content:center;color:#9fb4e8">Čekám na vlny…</div>';
+    return;
+  }
+  let html='';
+  friends.forEach(f=>{
+    html+='<div class="friend'+(f.dead?' dead':'')+'">'
+      +'<div class="av">'+f.name.slice(0,2).toUpperCase()+'</div>'
+      +'<div class="nm">'+(f.dead?'💀 '+f.name:f.name)+'</div>'
+      +'<div class="hpwrap"><div class="bar"><i style="width:'+Math.max(0,f.hp)+'%'+(f.hp<=30?';background:linear-gradient(90deg,#ff5d5d,#ffd23f)':'')+'"></i></div>'
+      +'<div class="lbl">'+(f.dead?'mrtvý':'HP '+(f.hp<=0?0:f.hp))+'</div></div>'
+      +'</div>';
+  });
+  friendsEl.innerHTML=html;
+}
+function takeDamage(d,from,w){
+  if(dying)return;
+  hp=Math.max(0,hp-d);
+  redflashUI();
+  vib([110,60,110]);
+  hitSound();
+  updateHp();
+  send({t:'hp',n:playerName,hp:Math.round(hp)});
+  if(hp<=0){
+    dying=true;
+    deathSound();vib([220,120,220]);
+    send({t:'dead',n:playerName});
+    showToast('☠️ Sestřelil tě '+from);
+    deadscr.classList.add('show');
+    let c=6;
+    revCnt.textContent=c;
+    const iv=setInterval(function(){
+      c--;
+      if(c<=0){
+        clearInterval(iv);
+        hp=100;dying=false;updateHp();
+        deadscr.classList.remove('show');
+        respawnSound();
+        send({t:'respawn',n:playerName});
+        showToast('🫀 Ožil jsi!');
+      }else revCnt.textContent=c;
+    },1000);
+  }
+}
+
+fireBtn.addEventListener('pointerdown',function(){ensureAudio();ensureCamera();fire();});
+document.querySelectorAll('.wep').forEach(el=>el.addEventListener('pointerdown',function(){
+  ensureAudio();selectWeapon(el.dataset.w);
+}));
+btnMotion.addEventListener('pointerdown',enableMotion);
+btnConnect.addEventListener('pointerdown',function(){ensureAudio();connect();});
+window.addEventListener('keydown',function(e){if(e.code==='Space'){e.preventDefault();fire();}});
+window.addEventListener('pointerdown',function(){ensureAudio();},false);
+window.addEventListener('pagehide',function(){try{if(track)track.stop();}catch(e){}});
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){try{if(track)torch(false);}catch(e){}}
+});
+selectWeapon('pistol');
+updateHp();updateKills();
+</script>
+</body>
+</html>
